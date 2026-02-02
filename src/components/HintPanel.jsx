@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { getSocraticHint } from '../services/api'
 
 const INITIAL_MESSAGES = [
   {
@@ -8,19 +9,13 @@ const INITIAL_MESSAGES = [
   }
 ]
 
-const SAMPLE_HINTS = [
-  "Interesting problem! Let me ask you this: What do you already know about this type of equation?",
-  "Good thinking! Now, what happens if you isolate the variable on one side? What operation would you use?",
-  "You're getting closer! Remember the fundamental principle here – what must remain balanced on both sides?",
-  "Excellent progress! Before we continue, can you tell me what pattern you notice in this problem?",
-  "Think about this: If you had a similar problem before, what approach worked then?",
-]
-
-function HintPanel({ hasImage }) {
+function HintPanel({ hasImage, problemData, isAnalyzing }) {
   const [messages, setMessages] = useState(INITIAL_MESSAGES)
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const [previousHints, setPreviousHints] = useState([])
   const messagesEndRef = useRef(null)
+  const hasShownAnalysisMessage = useRef(false)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -30,47 +25,86 @@ function HintPanel({ hasImage }) {
     scrollToBottom()
   }, [messages])
 
-  // Add a hint when image is uploaded
+  // Show analyzing message
   useEffect(() => {
-    if (hasImage && messages.length === 1) {
-      setTimeout(() => {
-        setIsTyping(true)
-        setTimeout(() => {
-          setIsTyping(false)
-          setMessages(prev => [...prev, {
-            id: Date.now(),
-            type: 'ai',
-            content: "I can see your problem! Take a moment to highlight or circle the part you're stuck on. Then tell me: What have you tried so far?"
-          }])
-        }, 1500)
-      }, 500)
-    }
-  }, [hasImage, messages.length])
-
-  const handleSend = () => {
-    if (!inputValue.trim()) return
-
-    // Add user message
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: inputValue
-    }
-    setMessages(prev => [...prev, userMessage])
-    setInputValue('')
-
-    // Simulate AI response
-    setIsTyping(true)
-    setTimeout(() => {
-      setIsTyping(false)
-      const randomHint = SAMPLE_HINTS[Math.floor(Math.random() * SAMPLE_HINTS.length)]
+    if (isAnalyzing && !hasShownAnalysisMessage.current) {
+      hasShownAnalysisMessage.current = true
       setMessages(prev => [...prev, {
         id: Date.now(),
         type: 'ai',
-        content: randomHint
+        content: "I can see you've uploaded an image! Let me analyze the problem..."
       }])
-    }, 1500 + Math.random() * 1000)
-  }
+    }
+  }, [isAnalyzing])
+
+  // Show problem detected message and get first hint
+  useEffect(() => {
+    if (problemData && hasShownAnalysisMessage.current) {
+      // Add problem detection message
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        type: 'ai',
+        content: `I've identified this as a **${problemData.subject}** problem (${problemData.problem_type.replace(/_/g, ' ')}). I can see: "${problemData.extracted_text}"\n\nHighlight or circle the part you're stuck on, then ask me a question!`
+      }])
+      
+      // Reset for next image
+      hasShownAnalysisMessage.current = false
+      setPreviousHints([])
+    }
+  }, [problemData])
+
+  const fetchHint = useCallback(async (userQuestion) => {
+    if (!problemData) return
+
+    setIsTyping(true)
+    
+    try {
+      const result = await getSocraticHint({
+        problemText: problemData.extracted_text,
+        problemType: problemData.problem_type,
+        subject: problemData.subject,
+        userQuestion: userQuestion,
+        previousHints: previousHints
+      })
+
+      // Add hint to messages
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        type: 'ai',
+        content: result.hint + (result.follow_up ? `\n\n💡 ${result.follow_up}` : '')
+      }])
+
+      // Track previous hints
+      setPreviousHints(prev => [...prev, result.hint])
+
+    } catch (error) {
+      console.error('Failed to get hint:', error)
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        type: 'ai',
+        content: "I'm having trouble connecting to the AI. Please make sure the backend server is running."
+      }])
+    } finally {
+      setIsTyping(false)
+    }
+  }, [problemData, previousHints])
+
+  const handleSend = useCallback(() => {
+    if (!inputValue.trim()) return
+
+    const userMessage = inputValue.trim()
+
+    // Add user message
+    setMessages(prev => [...prev, {
+      id: Date.now(),
+      type: 'user',
+      content: userMessage
+    }])
+    setInputValue('')
+
+    // Fetch hint from API
+    fetchHint(userMessage)
+  }, [inputValue, fetchHint])
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -79,6 +113,8 @@ function HintPanel({ hasImage }) {
     }
   }
 
+  const canSend = hasImage && problemData && !isTyping && inputValue.trim()
+
   return (
     <aside className="hint-panel glass-card">
       <div className="hint-header">
@@ -86,7 +122,11 @@ function HintPanel({ hasImage }) {
           <span style={{ fontSize: '1.25rem' }}>🧠</span>
           Socratic Guide
         </h3>
-        <p className="hint-subtitle">I'll help you think, not give answers</p>
+        <p className="hint-subtitle">
+          {problemData 
+            ? `Helping with: ${problemData.subject}` 
+            : "I'll help you think, not give answers"}
+        </p>
       </div>
 
       <div className="hint-messages">
@@ -98,7 +138,11 @@ function HintPanel({ hasImage }) {
               </div>
               <span>{msg.type === 'ai' ? 'Socratic Tutor' : 'You'}</span>
             </div>
-            <div className="message-content">{msg.content}</div>
+            <div className="message-content">
+              {msg.content.split('\n').map((line, i) => (
+                <p key={i}>{line}</p>
+              ))}
+            </div>
           </div>
         ))}
         
@@ -122,13 +166,21 @@ function HintPanel({ hasImage }) {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={hasImage ? "Ask about your problem..." : "Upload an image first..."}
-            disabled={!hasImage}
+            placeholder={
+              !hasImage 
+                ? "Upload an image first..." 
+                : isAnalyzing 
+                ? "Analyzing image..." 
+                : !problemData 
+                ? "Waiting for analysis..."
+                : "Ask about your problem..."
+            }
+            disabled={!hasImage || !problemData || isTyping}
           />
           <button 
             className="send-btn" 
             onClick={handleSend}
-            disabled={!hasImage || !inputValue.trim()}
+            disabled={!canSend}
           >
             ➤
           </button>
