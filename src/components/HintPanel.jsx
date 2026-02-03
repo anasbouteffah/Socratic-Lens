@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { getSocraticHint } from '../services/api'
+import MathText from './MathText'
 
 const INITIAL_MESSAGES = [
   {
@@ -40,11 +41,13 @@ function HintPanel({ hasImage, problemData, isAnalyzing }) {
   // Show problem detected message and get first hint
   useEffect(() => {
     if (problemData && hasShownAnalysisMessage.current) {
-      // Add problem detection message
+      // Format the extracted text for display
+      const formattedText = problemData.extracted_text
+      
       setMessages(prev => [...prev, {
         id: Date.now(),
         type: 'ai',
-        content: `I've identified this as a **${problemData.subject}** problem (${problemData.problem_type.replace(/_/g, ' ')}). I can see: "${problemData.extracted_text}"\n\nHighlight or circle the part you're stuck on, then ask me a question!`
+        content: `I've identified this as a **${problemData.subject}** problem (${problemData.problem_type.replace(/_/g, ' ')}).\n\nI can see: $${formattedText}$\n\nHighlight or circle the part you're stuck on, then ask me a question!`
       }])
       
       // Reset for next image
@@ -140,7 +143,9 @@ function HintPanel({ hasImage, problemData, isAnalyzing }) {
             </div>
             <div className="message-content">
               {msg.content.split('\n').map((line, i) => (
-                <p key={i}>{line}</p>
+                <p key={i}>
+                  <MathText>{line}</MathText>
+                </p>
               ))}
             </div>
           </div>
