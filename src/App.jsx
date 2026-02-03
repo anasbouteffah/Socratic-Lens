@@ -8,6 +8,7 @@ import HowItWorks from './components/HowItWorks'
 import Examples from './components/Examples'
 import About from './components/About'
 import Footer from './components/Footer'
+import MathText from './components/MathText'
 import { analyzeImage, dataUrlToBlob } from './services/api'
 
 function App() {
@@ -198,7 +199,9 @@ function App() {
                     )}
                     <div className="result-text">
                       <span className="label">Extracted:</span>
-                      <code>{problemData.extracted_text}</code>
+                      <div className="formula-display">
+                        <MathText>{`$${problemData.extracted_text}$`}</MathText>
+                      </div>
                     </div>
                   </div>
                 </div>

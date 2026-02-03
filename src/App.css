@@ -1054,3 +1054,55 @@
 .message-content p + p {
   margin-top: var(--space-sm);
 }
+
+/* Formula Display */
+.formula-display {
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-sm);
+  overflow-x: auto;
+  text-align: center;
+}
+
+.formula-display .katex {
+  font-size: 1.1em;
+}
+
+/* Math Block */
+.math-block {
+  padding: var(--space-md);
+  margin: var(--space-sm) 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+/* Math Text Styling */
+.math-text {
+  line-height: 1.6;
+}
+
+.math-text strong {
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.math-text em {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.math-text code {
+  background: var(--bg-tertiary);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.math-error {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+}
