@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { getSocraticHint } from '../services/api'
+import { chatWithTutor } from '../services/api'
 import MathText from './MathText'
 
 const INITIAL_MESSAGES = [
@@ -14,7 +14,6 @@ function HintPanel({ hasImage, problemData, isAnalyzing }) {
   const [messages, setMessages] = useState(INITIAL_MESSAGES)
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping] = useState(false)
-  const [previousHints, setPreviousHints] = useState([])
   const messagesEndRef = useRef(null)
   const hasShownAnalysisMessage = useRef(false)
 
@@ -38,50 +37,56 @@ function HintPanel({ hasImage, problemData, isAnalyzing }) {
     }
   }, [isAnalyzing])
 
-  // Show problem detected message and get first hint
+  // Show problem detected message
   useEffect(() => {
     if (problemData && hasShownAnalysisMessage.current) {
-      // Format the extracted text for display
       const formattedText = problemData.extracted_text
       
       setMessages(prev => [...prev, {
         id: Date.now(),
         type: 'ai',
-        content: `I've identified this as a **${problemData.subject}** problem (${problemData.problem_type.replace(/_/g, ' ')}).\n\nI can see: $${formattedText}$\n\nHighlight or circle the part you're stuck on, then ask me a question!`
+        content: `I've identified this as a **${problemData.subject}** problem (${problemData.problem_type.replace(/_/g, ' ')}).\n\nI can see: $${formattedText}$\n\nWhat would you like help with? Ask me anything about this problem!`
       }])
       
-      // Reset for next image
       hasShownAnalysisMessage.current = false
-      setPreviousHints([])
     }
   }, [problemData])
 
-  const fetchHint = useCallback(async (userQuestion) => {
+  // Build conversation history for API (excluding system messages)
+  const getConversationHistory = useCallback(() => {
+    return messages
+      .filter(m => m.id !== 1) // Exclude initial greeting
+      .filter(m => !m.content.includes("uploaded an image")) // Exclude system messages
+      .map(m => ({
+        role: m.type === 'ai' ? 'assistant' : 'user',
+        content: m.content
+      }))
+  }, [messages])
+
+  const sendMessage = useCallback(async (userMessage) => {
     if (!problemData) return
 
     setIsTyping(true)
     
     try {
-      const result = await getSocraticHint({
-        problemText: problemData.extracted_text,
-        problemType: problemData.problem_type,
-        subject: problemData.subject,
-        userQuestion: userQuestion,
-        previousHints: previousHints
+      // Get full conversation history
+      const conversationHistory = getConversationHistory()
+      
+      const result = await chatWithTutor({
+        problem: problemData,
+        messages: conversationHistory,
+        userMessage: userMessage
       })
 
-      // Add hint to messages
+      // Add AI response to messages
       setMessages(prev => [...prev, {
         id: Date.now(),
         type: 'ai',
-        content: result.hint + (result.follow_up ? `\n\n💡 ${result.follow_up}` : '')
+        content: result.response
       }])
 
-      // Track previous hints
-      setPreviousHints(prev => [...prev, result.hint])
-
     } catch (error) {
-      console.error('Failed to get hint:', error)
+      console.error('Failed to get response:', error)
       setMessages(prev => [...prev, {
         id: Date.now(),
         type: 'ai',
@@ -90,14 +95,14 @@ function HintPanel({ hasImage, problemData, isAnalyzing }) {
     } finally {
       setIsTyping(false)
     }
-  }, [problemData, previousHints])
+  }, [problemData, getConversationHistory])
 
   const handleSend = useCallback(() => {
     if (!inputValue.trim()) return
 
     const userMessage = inputValue.trim()
 
-    // Add user message
+    // Add user message to chat
     setMessages(prev => [...prev, {
       id: Date.now(),
       type: 'user',
@@ -105,9 +110,9 @@ function HintPanel({ hasImage, problemData, isAnalyzing }) {
     }])
     setInputValue('')
 
-    // Fetch hint from API
-    fetchHint(userMessage)
-  }, [inputValue, fetchHint])
+    // Send to API
+    sendMessage(userMessage)
+  }, [inputValue, sendMessage])
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

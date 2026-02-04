@@ -35,14 +35,48 @@ export async function analyzeImage(imageFile) {
 }
 
 /**
- * Get a Socratic hint for the problem
+ * Chat with the Socratic tutor (with full conversation memory)
  * @param {Object} params
- * @param {string} params.problemText - The extracted problem text
- * @param {string} params.problemType - Type of problem
- * @param {string} params.subject - Subject area
- * @param {string} [params.userQuestion] - Optional user question
- * @param {string[]} [params.previousHints] - Previous hints given
- * @returns {Promise<{hint: string, hint_type: string, follow_up: string|null}>}
+ * @param {Object} params.problem - The problem context {extracted_text, problem_type, subject}
+ * @param {Array} params.messages - Previous messages [{role: 'user'|'assistant', content: string}]
+ * @param {string} params.userMessage - The new message from the user
+ * @returns {Promise<{response: string, hint_type: string}>}
+ */
+export async function chatWithTutor({ problem, messages, userMessage }) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        problem: {
+          extracted_text: problem.extracted_text,
+          problem_type: problem.problem_type,
+          subject: problem.subject,
+        },
+        messages: messages,
+        user_message: userMessage,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `Server error: ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+      throw new Error('Cannot connect to backend. Make sure the server is running.');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get a Socratic hint for the problem (legacy - use chatWithTutor instead)
+ * @deprecated Use chatWithTutor for conversation memory
  */
 export async function getSocraticHint({ problemText, problemType, subject, userQuestion, previousHints }) {
   const params = new URLSearchParams({

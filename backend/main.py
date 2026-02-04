@@ -59,6 +59,29 @@ class HintResponse(BaseModel):
     follow_up: Optional[str] = None
 
 
+# Chat Models (for conversation memory)
+class ChatMessage(BaseModel):
+    role: str  # 'user' or 'assistant'
+    content: str
+
+
+class ProblemContext(BaseModel):
+    extracted_text: str
+    problem_type: str
+    subject: str
+
+
+class ChatRequest(BaseModel):
+    problem: ProblemContext
+    messages: List[ChatMessage]
+    user_message: str
+
+
+class ChatResponse(BaseModel):
+    response: str
+    hint_type: str = "question"
+
+
 def encode_image_to_base64(image_bytes: bytes) -> str:
     """Convert image bytes to base64 string."""
     return base64.b64encode(image_bytes).decode("utf-8")
@@ -241,6 +264,80 @@ Only respond with the JSON."""
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Hint generation failed: {str(e)}")
+
+
+# Socratic System Prompt
+SOCRATIC_SYSTEM_PROMPT = """You are a Socratic tutor helping students learn. Your core rules:
+
+1. NEVER give the answer directly
+2. NEVER show solution steps
+3. Ask guiding questions to help them think
+4. Point to relevant concepts they should consider
+5. Be encouraging and patient
+6. If they're frustrated, simplify your hints
+7. Celebrate when they make progress
+
+You are helping with this problem:
+Problem: {problem_text}
+Subject: {subject}
+Type: {problem_type}
+
+Remember: Your goal is to help them DISCOVER the answer themselves, not to give it to them."""
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_tutor(request: ChatRequest):
+    """
+    Chat endpoint with full conversation memory.
+    Maintains context across multiple messages.
+    """
+    try:
+        # Build the system prompt with problem context
+        system_prompt = SOCRATIC_SYSTEM_PROMPT.format(
+            problem_text=request.problem.extracted_text,
+            subject=request.problem.subject,
+            problem_type=request.problem.problem_type
+        )
+        
+        # Build messages array with full history
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history
+        for msg in request.messages:
+            messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+        
+        # Add the new user message
+        messages.append({
+            "role": "user", 
+            "content": request.user_message
+        })
+        
+        # Call LLM with full conversation context
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=messages,
+            max_tokens=300,
+            temperature=0.7
+        )
+        
+        ai_response = response.choices[0].message.content.strip()
+        
+        # Determine hint type based on content
+        hint_type = "question"
+        if "?" in ai_response:
+            hint_type = "question"
+        elif any(word in ai_response.lower() for word in ["think about", "consider", "remember"]):
+            hint_type = "nudge"
+        else:
+            hint_type = "concept"
+        
+        return ChatResponse(response=ai_response, hint_type=hint_type)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
 if __name__ == "__main__":
